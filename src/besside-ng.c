@@ -647,7 +647,7 @@ static void network_print(struct network *n)
     char *format;
     int len;
     redisReply *reply;
-    // TODo: skip broadcast and skip rouge aps
+    // TODO: skip broadcast and skip rouge aps
 
 	switch (n->n_crypto) {
 	case CRYPTO_NONE:
@@ -1470,8 +1470,20 @@ static void attack(struct network *n)
 
 static void found_new_client(struct network *n, struct client *c)
 {
+    char *clients_key;
+    char *redis_cmd;
+    int len;
+
 	time_printf(V_VERBOSE, "Found client for network [%s] %s\n",
 		    n->n_ssid, mac2str(c->c_mac));
+
+    len = snprintf(NULL, 0, "clients_%s", mac2str(n->n_bssid));
+    clients_key = (char *) malloc(len + 1);
+    sprintf(clients_key, "clients_%s", mac2str(n->n_bssid));
+    len = snprintf(NULL, 0, "SADD %s %s", clients_key, mac2str(n->n_bssid));
+    redis_cmd = (char *) malloc(len +  1);
+    sprintf(redis_cmd, "SADD %s %s", clients_key, mac2str(n->n_bssid));
+    redisCommand(redis_context, redis_cmd);
 
 	if (n->n_mac_filter && !n->n_client_mac)
 		attack_continue(n);
