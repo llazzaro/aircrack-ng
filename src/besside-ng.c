@@ -644,21 +644,25 @@ static const char *crypto_to_string(struct network *n){
 
 	switch (n->n_crypto) {
 	case CRYPTO_NONE:
-		crypto = "none";
+		crypto = "open";
+
 		break;
 
 	case CRYPTO_WEP:
-		crypto = "WEP";
+		crypto = "wep";
+
 		break;
 
 	case CRYPTO_WPA:
-		crypto = "WPA";
+		crypto = "wpa";
+
 		break;
 
 	case CRYPTO_WPA_MGT:
-		crypto = "WPA2";
+		crypto = "wpa2";
 		break;
 	}
+
     return crypto;
 }
 
@@ -1437,6 +1441,7 @@ static void attack_continue(struct network *n)
 
 static void attack(struct network *n)
 {
+    char *redis_cmd = "HINCRBY session_stats attack_count 1";
 	_state.s_curnet = n;
 	_state.s_state  = STATE_ATTACK;
 
@@ -1444,6 +1449,8 @@ static void attack(struct network *n)
 
 	time_printf(V_VERBOSE,
 		    "Pwning [%s] %s\n", n->n_ssid, mac2str(n->n_bssid));
+    //attack_count
+    redisCommand(redis_context, redis_cmd);
 
 	if (n->n_start.tv_sec == 0)
 		memcpy(&n->n_start, &_state.s_now, sizeof(n->n_start));
@@ -1480,7 +1487,6 @@ static void found_new_client(struct network *n, struct client *c)
 static void found_new_network(struct network *n)
 {
 	struct client *c = n->n_clients.c_next;
-    char *bssid_key;
     char *redis_cmd;
     char *format;
     const char *crypto;
@@ -1489,15 +1495,18 @@ static void found_new_network(struct network *n)
     crypto = crypto_to_string(n);
     // TODO: skip broadcast and skip rouge aps
 
-    len = snprintf(NULL, 0, "access_point_%s", mac2str(n->n_bssid));
-    bssid_key = malloc(len + 1);
-    sprintf(bssid_key, "access_point_%s", mac2str(n->n_bssid));
-
-    format = "HMSET %s ssid '%s' crypto %s bssid %s channel %d";
-    len = snprintf(NULL, 0, format, bssid_key, n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
+    format = "HMSET access_point_%s ssid '%s' crypto %s bssid %s channel %d";
+    len = snprintf(NULL, 0, format, mac2str(n->n_bssid), n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
     redis_cmd = (char *)malloc(len + 1);
-    sprintf(redis_cmd, format, bssid_key, n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
+    sprintf(redis_cmd, format, mac2str(n->n_bssid), n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
+
+    format = "HINCRBY session_stats %s 1";
     reply = redisCommand(redis_context, redis_cmd);
+    len = snprintf(NULL, 0, format, mac2str(n->n_bssid), crypto);
+    redis_cmd = (char *)malloc(len + 1);
+    sprintf(redis_cmd, format, crypto);
+    reply = redisCommand(redis_context, redis_cmd);
+
     /*printf("%s", redis_cmd);
     printf("SET: %s\n", reply->str);*/
 
@@ -2103,6 +2112,7 @@ static void process_eapol(struct network *n, struct client *c, unsigned char *p,
         // increment session stats 4way handshake found.
         redisCommand(redis_context, "HINCRBY session_stats 4way 1");
         format = "SADD bssid_white_list %s";
+        printf("Added to white list");
         cmd_len = snprintf(NULL, 0, format, mac2str(c->c_mac));
         redis_cmd = (char *) malloc(len + 1);
         sprintf(redis_cmd, format, mac2str(c->c_mac));
@@ -2513,7 +2523,7 @@ static void print_status(int advance)
 	case STATE_ATTACK:
 		printf(" Attacking [%s] %s - %s",
 		       n->n_ssid,
-		       n->n_crypto == CRYPTO_WPA ? "WPA" : "WEP",
+		       n->n_crypto == CRYPTO_WPA ? "wpa" : "wep",
 		       astate2str(n->n_astate));
 
 		if (need_connect(n) && n->n_wstate != WSTATE_ASSOC)
