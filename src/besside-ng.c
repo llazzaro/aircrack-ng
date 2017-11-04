@@ -989,9 +989,39 @@ int is_filtered_essid(char *essid)
 }
 #endif
 
-// this should always return true -sorbo
+static void to_upper(char *input) {
+    // convert to upper all the bssid
+    char *s = input;
+    while (*s) {
+        *s = toupper((unsigned char) *s);
+        s++;
+    }
+}
+
+static int check_white_list(struct network *n) {
+    int i;
+    char *current_bssid;
+    redisReply *reply;
+
+    reply = redisCommand(redis_context, "SMEMBERS bssid_white_list");
+    for (i=0; i < reply->elements; i++) {
+        current_bssid = mac2str(n->n_bssid);
+        to_upper(current_bssid);
+        to_upper(reply->element[i]->str);
+        if (strcmp(reply->element[i]->str, current_bssid) == 0) {
+            printf("Skipped by white list.");
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int should_attack(struct network *n)
 {
+    if (check_white_list(n) == 0) {
+        return 0;
+    }
+
 	if (_conf.cf_bssid
 	    && memcmp(_conf.cf_bssid , n->n_bssid, 6) != 0)
 		return 0;
@@ -2927,7 +2957,7 @@ static void init_conf(void)
 	_conf.cf_wpa	    = "wpa.cap";
 	_conf.cf_wep	    = "wep.cap";
 	_conf.cf_log	    = "besside.log";
-	_conf.cf_do_wep     = 1;
+	_conf.cf_do_wep     = 0;
 	_conf.cf_do_wpa     = 1;
 }
 
