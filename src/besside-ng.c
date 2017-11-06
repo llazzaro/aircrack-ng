@@ -1684,6 +1684,51 @@ static int parse_elem_vendor(struct network *n, unsigned char *e, int l)
 	return parse_rsn(n, (unsigned char*) &wpa->wpa_version, l - 6, 0);
 }
 
+static void wifi_probe_request(struct ieee80211_frame *wh, int totlen) {
+
+	unsigned char *p = (unsigned char*) (wh + 1);
+    char *probe_ssid;
+    char *redis_cmd;
+    int cmd_len;
+    char *format = "";
+    int len = totlen;
+	int hidden = 0;
+	int ssids = 0;
+    int n, i;
+
+    //cmd_len = snprintf(NULL, 0, format, mac2str(c->c_mac));
+    //redis_cmd = (char *) malloc(len + 1);
+    //sprintf(redis_cmd, format, mac2str(c->c_mac));
+    //redisCommand(redis_context, redis_cmd);
+    // TODO: client_positions_%s % bssid
+    // access_point_{0}_client_{1}_last_time_seen'.format(bssid, station_mac)
+    //
+	while (p < wh + totlen) {
+        if( p + 2 + p[1] > wh + totlen )
+            break;
+
+        if( p[0] == 0x00 && p[1] > 0 && p[2] != '\0' &&
+                                ( p[1] > 1 || p[2] != ' ' ) ) {
+            for( i = 0; i < n; i++ ) {
+                if( p[2 + i] > 0 && p[2 + i] < ' ' ) {
+
+                }
+            }
+            n = p[1];
+            printf("probe size: %d \n", n);
+            printf("ssid ->");
+            probe_ssid = (char *)malloc(n * sizeof(char));
+            memcpy(probe_ssid, p + 2, n );
+            printf(probe_ssid);
+            printf("<-\n");
+            free(probe_ssid);
+        }
+        p += 2 + p[1];
+
+    }
+
+}
+
 static void wifi_beacon(struct network *n, struct ieee80211_frame *wh,
 			int totlen)
 {
@@ -1908,6 +1953,9 @@ __bad:
 static void wifi_mgt(struct network *n, struct ieee80211_frame *wh, int len)
 {
 	switch (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) {
+    //case IEEE80211_FC0_SUBTYPE_PROBE_REQ:
+    //    wifi_probe_request(wh, len);
+
 	case IEEE80211_FC0_SUBTYPE_BEACON:
 		wifi_beacon(n, wh, len);
 
