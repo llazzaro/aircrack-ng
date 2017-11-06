@@ -3097,11 +3097,11 @@ int main(int argc, char *argv[])
 
 	init_conf();
 
-	while ((ch = getopt(argc, argv, "hb:vWs:c:p:R:")) != -1) {
+	while ((ch = getopt(argc, argv, "hb:vWw:c:p:R:")) != -1) {
 		switch (ch) {
-		case 's':
-			_conf.cf_wpa_server = optarg;
-			break;
+        case 'w':
+            _conf.cf_wpa = optarg;
+            break;
 
 		case 'W':
 			_conf.cf_do_wep = 0;
