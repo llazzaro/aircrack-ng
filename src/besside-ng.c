@@ -1510,6 +1510,9 @@ static void found_new_client(struct network *n, struct client *c)
 
 	if (n->n_mac_filter && !n->n_client_mac)
 		attack_continue(n);
+
+    free(clients_key);
+    free(redis_cmd);
 }
 
 static void found_new_network(struct network *n)
@@ -1531,6 +1534,7 @@ static void found_new_network(struct network *n)
     format = "HINCRBY session_stats %s 1";
     reply = redisCommand(redis_context, redis_cmd);
     len = snprintf(NULL, 0, format, mac2str(n->n_bssid), crypto);
+    free(redis_cmd);
     redis_cmd = (char *)malloc(len + 1);
     sprintf(redis_cmd, format, crypto);
     reply = redisCommand(redis_context, redis_cmd);
@@ -1554,6 +1558,7 @@ static void found_new_network(struct network *n)
 			_state.s_state = STATE_DONE;
 		}
 	}
+    free(redis_cmd);
 }
 
 static void packet_copy(struct packet *p, void *d, int len)
@@ -2157,6 +2162,7 @@ static void process_eapol(struct network *n, struct client *c, unsigned char *p,
 			n->n_astate = ASTATE_WPA_CRACK;
 			attack_continue(n);
 		}
+        free(redis_cmd);
 	}
 }
 
