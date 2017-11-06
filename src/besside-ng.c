@@ -152,7 +152,6 @@ struct conf {
 	char		*cf_log;
 	int		cf_do_wep;
 	int		cf_do_wpa;
-	char		*cf_wpa_server;
 #ifdef HAVE_PCRE
     pcre *cf_essid_regex;
 #endif
@@ -1009,7 +1008,6 @@ static int check_white_list(struct network *n) {
         to_upper(current_bssid);
         to_upper(reply->element[i]->str);
         if (strcmp(reply->element[i]->str, current_bssid) == 0) {
-            printf("Skipped by white list.");
             return 0;
         }
     }
