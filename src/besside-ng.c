@@ -814,6 +814,27 @@ static void packet_write_pcap(int fd, struct packet *p)
 	write_pcap(fd, p->p_data, p->p_len);
 }
 
+static void save_handshakes(struct network *n)
+{
+    int i;
+    printf("saving handshakes");
+
+	_state.s_wpafd = open_pcap(_conf.cf_wpa);
+
+    packet_write_pcap(_state.s_wpafd, &n->n_beacon);
+
+    for (i = 0; i < 4; i++) {
+        struct packet *p = &n->n_client_handshake->c_handshake[i];
+
+        if (p->p_len)
+            packet_write_pcap(_state.s_wpafd, p);
+    }
+
+	close(_state.s_wpafd);
+    n->n_astate = ASTATE_DONE;
+    attack_continue(n);
+}
+
 static void attack_wpa(struct network *n)
 {
 	switch (n->n_astate) {
@@ -823,6 +844,9 @@ static void attack_wpa(struct network *n)
 	case ASTATE_DEAUTH:
 		deauth(n);
 		break;
+    case ASTATE_WPA_CRACK:
+        save_handshakes(n);
+        break;
 	}
 }
 
@@ -2890,8 +2914,6 @@ static void cleanup(int UNUSED(x))
 		cracker_kill(&n->n_cracker_wep[1]);
 	}
 
-	if (_state.s_wpafd)
-		close(_state.s_wpafd);
 
 	if (_state.s_wepfd)
 		close(_state.s_wepfd);
@@ -2933,7 +2955,6 @@ static void pwn(void)
 
 	resume();
 
-	_state.s_wpafd = open_pcap(_conf.cf_wpa);
 	_state.s_wepfd = open_pcap(_conf.cf_wep);
 
 	save_log();
