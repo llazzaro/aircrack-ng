@@ -845,7 +845,6 @@ static void attack_wpa(struct network *n)
 		deauth(n);
 		break;
     case ASTATE_WPA_CRACK:
-        save_handshakes(n);
         break;
 	}
 }
@@ -2229,7 +2228,7 @@ static void process_eapol(struct network *n, struct client *c, unsigned char *p,
 
 		n->n_client_mac = c;
 		found_mac(n);
-
+        save_handshakes(n);
 		if (n->n_ssid[0]) {
 			n->n_astate = ASTATE_WPA_CRACK;
 			attack_continue(n);
