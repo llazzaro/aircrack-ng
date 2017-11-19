@@ -20,13 +20,13 @@ ifeq ($(PCRE), true)
 	LIBPCRE = $(shell $(PKG_CONFIG) --libs libpcre)
 endif
 
-ifneq ($(OSNAME), cygwin) #There is yet no libpcap support for windows, so we skip the crawler
-	HAVE_PCAP	= $(shell ld -lpcap 2> /dev/null && echo yes)
-	ifeq ($(HAVE_PCAP), yes) #cannot link with -lpcap, skip crawler
-		BINFILES	+= besside-ng-crawler$(EXE)
-		LIBPCAP		= -lpcap
-	endif
-endif
+#ifneq ($(OSNAME), cygwin) #There is yet no libpcap support for windows, so we skip the crawler
+#	HAVE_PCAP	= $(shell ld -lpcap 2> /dev/null && echo yes)
+#	ifeq ($(HAVE_PCAP), yes) #cannot link with -lpcap, skip crawler
+#		BINFILES	+= besside-ng-crawler$(EXE)
+#		LIBPCAP		= -lpcap
+#	endif
+#endif
 
 ifeq ($(subst TRUE,true,$(filter TRUE true,$(sqlite) $(SQLITE))),true)
 	BINFILES	+= airolib-ng$(EXE)
@@ -92,7 +92,6 @@ OBJS_IV		= ivstools.o common.o crypto.o uniqueiv.o
 OBJS_AS		= airserv-ng.o common.o osdep/radiotap/radiotap.o
 OBJS_WS		= wesside-ng.o crypto.o common.o osdep/radiotap/radiotap.o $(OBJS_PTW)
 OBJS_BS		= besside-ng.o crypto.o common.o osdep/radiotap/radiotap.o $(OBJS_PTW)
-OBJS_BC		= besside-ng-crawler.o
 OBJS_AL		= airolib-ng.o crypto.o common.o
 OBJS_ES		= easside-ng.o common.o osdep/radiotap/radiotap.o
 OBJS_BUDDY	= buddy-ng.o common.o
@@ -234,9 +233,6 @@ buddy-ng$(EXE): $(OBJS_BUDDY)
 besside-ng$(EXE): $(OBJS_BS) $(LIBOSD)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS_BS) -o $(@) $(LIBS) $(LIBSSL) -lz $(LIBPCRE) -levent -lhiredis -ggdb
 
-besside-ng-crawler$(EXE): $(OBJS_BC)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS_BC) -o $(@) $(LIBPCAP)
-
 makeivs-ng$(EXE): $(OBJS_MI)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS_MI) -o $(@) $(LDFLAGS)
 
@@ -290,7 +286,6 @@ uninstall:
 	-rm -f $(DESTDIR)$(sbindir)/wesside-ng$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/easside-ng$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/besside-ng$(EXE)
-	-rm -f $(DESTDIR)$(bindir)/besside-ng-crawler$(EXE)
 	-rm -f $(DESTDIR)$(bindir)/wpaclean$(EXE)
 	-rm -f $(DESTDIR)$(sbindir)/airbase-ng$(EXE)
 	-rm -f $(DESTDIR)$(bindir)/makeivs-ng$(EXE)
