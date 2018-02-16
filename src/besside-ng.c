@@ -195,6 +195,7 @@ struct network {
 	int		n_crypto;
 	int		n_chan;
 	struct network	*n_next;
+	struct network	*n_previous;
 	struct timeval	n_start;
 	int		n_have_beacon;
 	struct client	n_clients;
@@ -602,12 +603,13 @@ static struct network *network_new(void)
 
 static void do_network_add(struct network *n)
 {
-	struct network *p = &_state.s_networks;
+	struct network *last = &_state.s_networks;
 
-	while (p->n_next)
-		p = p->n_next;
+	while (last->n_next)
+		last = last->n_next;
 
-	p->n_next = n;
+	last->n_next = n;
+    n->n_previous = last;
 }
 
 static struct network *network_add(struct ieee80211_frame *wh)
@@ -1128,6 +1130,42 @@ static void print_work(void)
 	printf("\n");
 
 	save_log();
+}
+
+static void free_network(struct network *n) {
+	struct client *to_free_client;
+    struct client *current_client = n->n_clients.c_next;
+    printf("Freeing %s \n", n->n_ssid);
+    while (current_client) {
+        to_free_client = current_client;
+        current_client = current_client->c_next;
+        free(to_free_client);
+    }
+    n->n_previous->n_next = n->n_next;
+    n->n_next->n_previous = n->n_previous;
+    free(n->n_client_mac);
+    free(n->n_client_handshake);
+    free(n);
+}
+
+static void clean_old() {
+    struct network *to_free_network;
+    struct network *current_network = _state.s_networks.n_next;
+    while (current_network) {
+        int s = (_state.s_now.tv_sec - current_network->n_start.tv_sec);
+        int m = s / 60;
+
+        s -= m * 60;
+        printf("Minutes since last attack %d \n", s);
+        if ( m > 5) {
+            printf("Cleaning up AP\n");
+            to_free_network = current_network;
+            current_network = current_network->n_next;
+            free_network(to_free_network);
+        } else {
+            current_network = current_network->n_next;
+        }
+    }
 }
 
 static void pwned(struct network *n)
@@ -2871,7 +2909,7 @@ static void resume_network(char *buf)
 	}
 
 	if (n->n_astate != ASTATE_DONE) {
-		free(n);
+        free_network(n);
 		return;
 	}
 
