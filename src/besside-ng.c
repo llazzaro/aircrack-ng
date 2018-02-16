@@ -840,14 +840,14 @@ static void save_handshakes(struct network *n)
 static void attack_wpa(struct network *n)
 {
 	switch (n->n_astate) {
-	case ASTATE_READY:
-		n->n_astate = ASTATE_DEAUTH;
-		/* fallthrough */
-	case ASTATE_DEAUTH:
-		deauth(n);
-		break;
-    case ASTATE_WPA_CRACK:
-        break;
+        case ASTATE_READY:
+            n->n_astate = ASTATE_DEAUTH;
+            /* fallthrough */
+        case ASTATE_DEAUTH:
+            deauth(n);
+            break;
+        case ASTATE_WPA_CRACK:
+            break;
 	}
 }
 
