@@ -502,7 +502,7 @@ static void timer_in(int us, timer_cb cb, void *arg)
 
 	t->t_next = p->t_next;
 	p->t_next = t;
-
+//   free(t);
 //	timer_print();
 }
 
@@ -867,7 +867,7 @@ static void hop(void *arg)
 		// skip unsupported chan.  XXX check if we run out.
 		if (wi_set_channel(_state.s_wi, c->c_num) == -1) {
 			_state.s_hopchan->c_next = c->c_next;
-			free(c);
+			//free(c);
 		} else
 			break;
 	}
@@ -1605,13 +1605,14 @@ static void found_new_network(struct network *n)
     redis_cmd = (char *)malloc(len + 1);
     sprintf(redis_cmd, format, mac2str(n->n_bssid), n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
 
-    format = "HINCRBY session_stats %s 1";
     reply = redisCommand(redis_context, redis_cmd);
+    format = "HINCRBY session_stats %s 1";
     len = snprintf(NULL, 0, format, mac2str(n->n_bssid), crypto);
     free(redis_cmd);
     redis_cmd = (char *)malloc(len + 1);
     sprintf(redis_cmd, format, crypto);
     reply = redisCommand(redis_context, redis_cmd);
+    free(redis_cmd);
 
     /*printf("%s", redis_cmd);
     printf("SET: %s\n", reply->str);*/
@@ -1632,7 +1633,6 @@ static void found_new_network(struct network *n)
 			_state.s_state = STATE_DONE;
 		}
 	}
-    free(redis_cmd);
 }
 
 static void packet_copy(struct packet *p, void *d, int len)
@@ -1762,12 +1762,6 @@ static void wifi_probe_request(struct ieee80211_frame *wh, int totlen) {
 
 	unsigned char *p = (unsigned char*) (wh + 1);
     char *probe_ssid;
-    char *redis_cmd;
-    int cmd_len;
-    char *format = "";
-    int len = totlen;
-	int hidden = 0;
-	int ssids = 0;
     int n, i;
 
     //cmd_len = snprintf(NULL, 0, format, mac2str(c->c_mac));
@@ -2377,10 +2371,13 @@ static void do_wep_crack(struct cracker *c, struct network *n, int len,
         }
 
         if (PTW_computeKey(n->n_ptw, key, len, limit, PTW_DEFAULTBF, all, 0)
-	    != 1)
-		return;
+	    != 1) {
+            free(all);
+		    return;
+        }
 
 	unused = write(c->cr_pipe[1], key, len);
+    free(all);
 }
 
 static void crack_wep64(struct cracker *c, struct network *n)
@@ -2854,6 +2851,7 @@ static void resume_network(char *buf)
 	char *p = buf, *p2;
 	int state = 0;
 	struct network *n;
+	struct client *client;
 
 	if (buf[0] == '#')
 		return;
@@ -3011,7 +3009,6 @@ static void pwn(void)
 	time_printf(V_NORMAL, "Logging to %s\n", _conf.cf_log);
 
 	scan_start();
-
 	while (s->s_state != STATE_DONE) {
 		timer_next(&tv);
 
@@ -3034,7 +3031,7 @@ static void pwn(void)
 			wifi_read();
 
 		timer_check();
-
+        //clean_old();
 		make_progress();
 	}
 
