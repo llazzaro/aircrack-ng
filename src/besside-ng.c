@@ -1027,16 +1027,18 @@ static int check_white_list(struct network *n) {
     char *current_bssid;
     redisReply *reply;
 
-    reply = redisCommand(redis_context, "SMEMBERS bssid_white_list");
-    for (i=0; i < reply->elements; i++) {
-        current_bssid = mac2str(n->n_bssid);
-        to_upper(current_bssid);
-        to_upper(reply->element[i]->str);
-        if (strcmp(reply->element[i]->str, current_bssid) == 0) {
-            return 0;
-        }
-    }
-    return 1;
+    format = "SISMEMBER bssid_white_list \"%s\"";
+    len = snprintf(NULL, 0, format, mac2str(n->n_bssid));
+    redis_cmd = (char *)malloc(len + 1);
+    sprintf(redis_cmd, format, mac2str(n->n_bssid));
+
+    reply = redisCommand(redis_context, redis_cmd);
+    free(redis_cmd);
+    if ( reply->integer == 1)
+        freeReplyObject(reply);
+        return 1;
+    freeReplyObject(reply);
+    return 0;
 }
 
 static int should_attack(struct network *n)
@@ -1097,8 +1099,9 @@ static int check_owned(struct network *n)
     reply = redisCommand(redis_context, redis_cmd);
     free(redis_cmd);
     if ( reply->integer == 1)
+        freeReplyObject(reply);
         return 1;
-
+    freeReplyObject(reply);
 	return n->n_astate == ASTATE_DONE;
 }
 
@@ -1544,7 +1547,8 @@ static void attack_continue(struct network *n)
 static void attack(struct network *n)
 {
     char *redis_cmd = "HINCRBY session_stats attack_count 1";
-	_state.s_curnet = n;
+	redisReply *reply;
+    _state.s_curnet = n;
 	_state.s_state  = STATE_ATTACK;
 
 	channel_set(n->n_chan);
@@ -1552,7 +1556,8 @@ static void attack(struct network *n)
 	time_printf(V_VERBOSE,
 		    "Pwning [%s] %s\n", n->n_ssid, mac2str(n->n_bssid));
     //attack_count
-    redisCommand(redis_context, redis_cmd);
+    reply = redisCommand(redis_context, redis_cmd);
+    freeReplyObject(reply);
 
 	if (n->n_start.tv_sec == 0)
 		memcpy(&n->n_start, &_state.s_now, sizeof(n->n_start));
@@ -1570,6 +1575,7 @@ static void found_new_client(struct network *n, struct client *c)
     char *clients_key;
     char *redis_cmd;
     int len;
+    redisReply *reply;
 
 	time_printf(V_VERBOSE, "Found client for network [%s] %s\n",
 		    n->n_ssid, mac2str(c->c_mac));
@@ -1580,7 +1586,8 @@ static void found_new_client(struct network *n, struct client *c)
     len = snprintf(NULL, 0, "SADD %s %s", clients_key, mac2str(n->n_bssid));
     redis_cmd = (char *) malloc(len +  1);
     sprintf(redis_cmd, "SADD %s %s", clients_key, mac2str(n->n_bssid));
-    redisCommand(redis_context, redis_cmd);
+    reply = redisCommand(redis_context, redis_cmd);
+    freeReplyObject(reply);
 
 	if (n->n_mac_filter && !n->n_client_mac)
 		attack_continue(n);
@@ -1606,12 +1613,14 @@ static void found_new_network(struct network *n)
     sprintf(redis_cmd, format, mac2str(n->n_bssid), n->n_ssid, crypto, mac2str(n->n_bssid), n->n_chan);
 
     reply = redisCommand(redis_context, redis_cmd);
+    freeReplyObject(reply);
     format = "HINCRBY session_stats %s 1";
     len = snprintf(NULL, 0, format, mac2str(n->n_bssid), crypto);
     free(redis_cmd);
     redis_cmd = (char *)malloc(len + 1);
     sprintf(redis_cmd, format, crypto);
     reply = redisCommand(redis_context, redis_cmd);
+    freeReplyObject(reply);
     free(redis_cmd);
 
     /*printf("%s", redis_cmd);
@@ -2204,6 +2213,7 @@ static void process_eapol(struct network *n, struct client *c, unsigned char *p,
 	int cmd_len, num, i;
     char *format;
     char *redis_cmd;
+    redisReply *reply;
 
 	if (n->n_client_handshake)
 		return;
@@ -2259,13 +2269,15 @@ static void process_eapol(struct network *n, struct client *c, unsigned char *p,
 	if (c->c_wpa_got == 7) {
 		n->n_client_handshake = c;
         // increment session stats 4way handshake found.
-        redisCommand(redis_context, "HINCRBY session_stats 4way 1");
+        reply = redisCommand(redis_context, "HINCRBY session_stats 4way 1");
+        freeReplyObject(reply);
         format = "SADD bssid_white_list %s";
         printf("Added to white list");
         cmd_len = snprintf(NULL, 0, format, mac2str(c->c_mac));
         redis_cmd = (char *) malloc(len + 1);
         sprintf(redis_cmd, format, mac2str(c->c_mac));
-        redisCommand(redis_context, redis_cmd);
+        reply = redisCommand(redis_context, redis_cmd);
+        freeReplyObject(reply);
 
 		time_printf(V_NORMAL,
 			    "Got necessary WPA handshake info for %s\n",
@@ -3062,6 +3074,7 @@ static void init_conf(void)
 
 	_conf.cf_channels.c_next = &_conf.cf_channels;
 
+        // add 5ghz support
 	for (i = 1; i <= 11; i++)
 		channel_add(i);
 
