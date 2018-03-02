@@ -575,6 +575,9 @@ static unsigned char *get_bssid(struct ieee80211_frame *wh)
 
 static struct network *network_get(struct ieee80211_frame *wh)
 {
+    /*
+     * Search on the seens networks. if not found it retuns none
+     */
 	struct network *n    = _state.s_networks.n_next;
 	unsigned char *bssid = get_bssid(wh);
 
@@ -603,6 +606,9 @@ static struct network *network_new(void)
 
 static void do_network_add(struct network *n)
 {
+    /*
+     * Add the network to the list.
+     */
 	struct network *last = &_state.s_networks;
 
 	while (last->n_next)
@@ -614,6 +620,9 @@ static void do_network_add(struct network *n)
 
 static struct network *network_add(struct ieee80211_frame *wh)
 {
+    /*
+     * Adds a new network to the struct.
+     */
 	struct network *n;
 	unsigned char *bssid = get_bssid(wh);
 
@@ -2101,6 +2110,10 @@ static unsigned char *get_client_mac(struct ieee80211_frame *wh)
 
 static struct client *client_get(struct network *n, struct ieee80211_frame *wh)
 {
+    /*
+     * Given the network and the 80211 frame, check if the client was already found
+     * if not it returns NULL.
+     */
 	struct client *c = n->n_clients.c_next;
 	unsigned char *cmac = get_client_mac(wh);
 
@@ -2576,7 +2589,9 @@ static struct network *network_update(struct ieee80211_frame* wh)
 		return NULL;
 
 	n = network_get(wh);
+    // network_get return NULL if not found in state struct
 	if (!n)
+        //not found. add a new one
 		n = network_add(wh);
 
 	assert(n);
