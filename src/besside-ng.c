@@ -74,6 +74,10 @@
 # define UNUSED(x) x
 #endif
 
+typedef int bool;
+#define true 1
+#define false 0
+
 static unsigned char ZERO[32] =
 "\x00\x00\x00\x00\x00\x00\x00\x00"
 "\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -152,6 +156,7 @@ struct conf {
 	char		*cf_log;
 	int		cf_do_wep;
 	int		cf_do_wpa;
+    bool    cf_5ghz;
 #ifdef HAVE_PCRE
     pcre *cf_essid_regex;
 #endif
@@ -1633,34 +1638,11 @@ static void attack(struct network *n)
 	attack_continue(n);
 }
 
-static void found_new_client(struct network *n, struct client *c)
-{
-    char *clients_key;
-    char *redis_cmd;
-    int len;
-    redisReply *reply;
-
-	time_printf(V_VERBOSE, "Found client for network [%s] %s\n",
-		    n->n_ssid, mac2str(c->c_mac));
-
-    len = snprintf(NULL, 0, "clients_%s", mac2str(n->n_bssid));
-    clients_key = (char *) malloc(len + 1);
-    sprintf(clients_key, "clients_%s", mac2str(n->n_bssid));
-    len = snprintf(NULL, 0, "SADD %s %s", clients_key, mac2str(n->n_bssid));
-    redis_cmd = (char *) malloc(len +  1);
-    sprintf(redis_cmd, "SADD %s %s", clients_key, mac2str(n->n_bssid));
-    reply = redisCommand(redis_context, redis_cmd);
-    freeReplyObject(reply);
-
-	if (n->n_mac_filter && !n->n_client_mac)
-		attack_continue(n);
-
-    free(clients_key);
-    free(redis_cmd);
-}
-
 static void found_new_network(struct network *n)
 {
+    /*
+     *
+     */
 	struct client *c = n->n_clients.c_next;
     char *redis_cmd;
     char *format;
@@ -2187,6 +2169,9 @@ static struct client *client_get(struct network *n, struct ieee80211_frame *wh)
 static struct client *client_update(struct network *n,
 				    struct ieee80211_frame *wh)
 {
+    /*
+     *
+     */
 	unsigned char *cmac = get_client_mac(wh);
 	struct client *c;
 	int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
@@ -2624,6 +2609,9 @@ static void wifi_data(struct network *n, struct ieee80211_frame *wh, int len)
 
 static struct network *network_update(struct ieee80211_frame* wh)
 {
+    /*
+     *
+     */
 	struct network *n;
 	struct client  *c = NULL;
 	unsigned char *bssid;
@@ -2746,8 +2734,9 @@ static void print_status(int advance)
 		break;
 
 	case STATE_ATTACK:
-		printf(" Attacking [%s] %s - %s",
-		       n->n_ssid,
+		printf(" Attacking %s [%s] %s - %s",
+               n->n_ssid,
+		       mac2str(n->n_bssid),
 		       n->n_crypto == CRYPTO_WPA ? "wpa" : "wep",
 		       astate2str(n->n_astate));
 
@@ -3073,7 +3062,7 @@ static void pwn(void)
 	if (wi_set_channel(s->s_wi, _state.s_chan) == -1)
 		err(1, "wi_set_channel()");
 
-	resume();
+	//resume();
 
 	_state.s_wepfd = open_pcap(_conf.cf_wep);
 
@@ -3128,20 +3117,67 @@ static void channel_add(int num)
 	c->c_next = _conf.cf_channels.c_next;
 }
 
+static void init_channel_hop () {
+    if (!_conf.cf_5ghz) {
+		channel_add(1);
+		channel_add(6);
+		channel_add(11);
+		channel_add(2);
+		channel_add(7);
+		channel_add(10);
+		channel_add(3);
+		channel_add(9);
+		channel_add(12);
+		channel_add(14);
+		channel_add(4);
+		channel_add(13);
+		channel_add(8);
+        channel_add(5);
+        _conf.cf_hopfreq    = 250;
+        _conf.cf_deauthfreq = 2500;
+
+    } else {
+        channel_add(36);
+        channel_add(40);
+        channel_add(44);
+        channel_add(48);
+        channel_add(52);
+        channel_add(56);
+        channel_add(60);
+        channel_add(64);
+        channel_add(100);
+        channel_add(104);
+        channel_add(108);
+        channel_add(112);
+        channel_add(116);
+        channel_add(120);
+        channel_add(124);
+        channel_add(128);
+        channel_add(132);
+        channel_add(136);
+        channel_add(140);
+        channel_add(144);
+        channel_add(149);
+        channel_add(153);
+        channel_add(157);
+        channel_add(161);
+        channel_add(165);
+
+        _conf.cf_hopfreq    = 587;
+        _conf.cf_deauthfreq = 5875;
+    }
+
+}
+
 static void init_conf(void)
 {
 	int i;
 
 	_conf.cf_channels.c_next = &_conf.cf_channels;
-
-        // add 5ghz support
-	for (i = 1; i <= 11; i++)
-		channel_add(i);
+    _conf.cf_5ghz       = false;
 
 	_state.s_hopchan = _conf.cf_channels.c_next;
 
-	_conf.cf_hopfreq    = 250;
-	_conf.cf_deauthfreq = 2500;
 	_conf.cf_attackwait = 10;
 	_conf.cf_floodwait  = 60;
 	_conf.cf_to	    = 100;
@@ -3290,60 +3326,62 @@ int main(int argc, char *argv[])
 
 	init_conf();
 
-	while ((ch = getopt(argc, argv, "hb:vWw:c:p:R:")) != -1) {
+	while ((ch = getopt(argc, argv, "hb:vWw:c:p:dR:")) != -1) {
 		switch (ch) {
-        case 'w':
-            _conf.cf_wpa = optarg;
-            break;
+            case 'w':
+                _conf.cf_wpa = optarg;
+                break;
 
-		case 'W':
-			_conf.cf_do_wep = 0;
-			break;
+            case 'W':
+                _conf.cf_do_wep = 0;
+                break;
 
-		case 'p':
-			_conf.cf_floodfreq = (int) (1.0 / (double) atoi(optarg)
-					      * 1000.0 * 1000.0);
-			break;
+            case 'p':
+                _conf.cf_floodfreq = (int) (1.0 / (double) atoi(optarg)
+                              * 1000.0 * 1000.0);
+                break;
 
-		case 'c':
-			// XXX leak
-			_conf.cf_channels.c_next = &_conf.cf_channels;
-			channel_add(atoi(optarg));
-			_state.s_hopchan = _conf.cf_channels.c_next;
-			break;
+            case 'c':
+                // XXX leak
+                _conf.cf_channels.c_next = &_conf.cf_channels;
+                channel_add(atoi(optarg));
+                _state.s_hopchan = _conf.cf_channels.c_next;
+                break;
 
-		case 'v':
-			_conf.cf_verb++;
-			break;
+            case 'v':
+                _conf.cf_verb++;
+                break;
 
-		case 'b':
-			_conf.cf_bssid = xmalloc(6);
-			parse_hex(_conf.cf_bssid, optarg, 6);
-			break;
-
+            case 'b':
+                _conf.cf_bssid = xmalloc(6);
+                parse_hex(_conf.cf_bssid, optarg, 6);
+                break;
+            case 'd':
+                _conf.cf_5ghz = true;
+                break;
 #ifdef HAVE_PCRE
-        case 'R':
-            if (_conf.cf_essid_regex != NULL) {
-                printf("Error: ESSID regular expression already given. Aborting\n");
-                exit(1);
-            }
+            case 'R':
+                if (_conf.cf_essid_regex != NULL) {
+                    printf("Error: ESSID regular expression already given. Aborting\n");
+                    exit(1);
+                }
 
-            _conf.cf_essid_regex = pcre_compile(optarg, 0, &pcreerror, &pcreerroffset, NULL);
+                _conf.cf_essid_regex = pcre_compile(optarg, 0, &pcreerror, &pcreerroffset, NULL);
 
-            if (_conf.cf_essid_regex == NULL) {
-                printf("Error: regular expression compilation failed at offset %d: %s; aborting\n", pcreerroffset, pcreerror);
-                exit(1);
-            }
-            break;
+                if (_conf.cf_essid_regex == NULL) {
+                    printf("Error: regular expression compilation failed at offset %d: %s; aborting\n", pcreerroffset, pcreerror);
+                    exit(1);
+                }
+                break;
 #endif
 
-		default:
-		case 'h':
-			usage(argv[0]);
-			break;
-		}
+            default:
+            case 'h':
+                usage(argv[0]);
+                break;
+            }
 	}
-
+    init_channel_hop();
 	if (optind <= argc)
 		_conf.cf_ifname = argv[optind];
 
