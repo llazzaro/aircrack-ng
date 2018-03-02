@@ -1032,27 +1032,35 @@ static void to_upper(char *input) {
 }
 
 static int check_white_list(struct network *n) {
-    int i;
+    int i, len;
     char *current_bssid;
+    char *format;
+    char *redis_cmd;
     redisReply *reply;
 
     format = "SISMEMBER bssid_white_list \"%s\"";
     len = snprintf(NULL, 0, format, mac2str(n->n_bssid));
     redis_cmd = (char *)malloc(len + 1);
     sprintf(redis_cmd, format, mac2str(n->n_bssid));
-
+    //printf(redis_cmd);
+    //printf("\n");
     reply = redisCommand(redis_context, redis_cmd);
     free(redis_cmd);
-    if ( reply->integer == 1)
+    if ( reply->integer == 1) {
         freeReplyObject(reply);
+        printf("----\n");
+        printf(mac2str(n->n_bssid));
+        printf("\n----");
+        printf("ALREADY FOUND!!! \n");
         return 1;
+    }
     freeReplyObject(reply);
     return 0;
 }
 
 static int should_attack(struct network *n)
 {
-    if (check_white_list(n) == 0) {
+    if (check_white_list(n) == 1) {
         return 0;
     }
 
