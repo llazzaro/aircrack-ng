@@ -1101,24 +1101,10 @@ static int check_ownable(struct network *n)
 
 static int check_owned(struct network *n)
 {
-    char *redis_cmd, *format;
-    redisReply *reply;
-    int len;
-	/* resumed network */
 	if (n->n_beacon.p_len == 0)
 		return 0;
-
-    format = "SISMEMBER bssid_white_list \"%s\"";
-    len = snprintf(NULL, 0, format, mac2str(n->n_bssid));
-    redis_cmd = (char *)malloc(len + 1);
-    sprintf(redis_cmd, format, mac2str(n->n_bssid));
-
-    reply = redisCommand(redis_context, redis_cmd);
-    free(redis_cmd);
-    if ( reply->integer == 1)
-        freeReplyObject(reply);
+    if (check_white_list(n) == 1)
         return 1;
-    freeReplyObject(reply);
 	return n->n_astate == ASTATE_DONE;
 }
 
