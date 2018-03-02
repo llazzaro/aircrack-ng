@@ -1847,35 +1847,35 @@ static void wifi_beacon(struct network *n, struct ieee80211_frame *wh,
 			goto __bad;
 
 		switch (id) {
-		case IEEE80211_ELEMID_SSID:
-			if (++ssids > 1)
-				break;
+            case IEEE80211_ELEMID_SSID:
+                if (++ssids > 1)
+                    break;
 
-			if (l == 0 || p[0] == 0)
-				hidden = 1;
-			else {
-				memcpy(n->n_ssid, p, l);
-				n->n_ssid[l] = 0;
-			}
-			break;
+                if (l == 0 || p[0] == 0)
+                    hidden = 1;
+                else {
+                    memcpy(n->n_ssid, p, l);
+                    n->n_ssid[l] = 0;
+                }
+                break;
 
-		case IEEE80211_ELEMID_DSPARMS:
-			n->n_chan = *p;
-			break;
+            case IEEE80211_ELEMID_DSPARMS:
+                n->n_chan = *p;
+                break;
 
-		case IEEE80211_ELEMID_VENDOR:
-			if (parse_elem_vendor(n, &p[-2], l + 2) == -1)
-				goto __bad;
-			break;
+            case IEEE80211_ELEMID_VENDOR:
+                if (parse_elem_vendor(n, &p[-2], l + 2) == -1)
+                    goto __bad;
+                break;
 
-		case IEEE80211_ELEMID_RSN:
-			if (parse_rsn(n, p, l, 1) == -1)
-				goto __bad;
-			break;
+            case IEEE80211_ELEMID_RSN:
+                if (parse_rsn(n, p, l, 1) == -1)
+                    goto __bad;
+                break;
 
-		default:
-//			printf("id %d len %d\n", id, l);
-			break;
+            default:
+    //			printf("id %d len %d\n", id, l);
+                break;
 		}
 
 		p      += l;
