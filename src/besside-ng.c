@@ -618,6 +618,74 @@ static void do_network_add(struct network *n)
     n->n_previous = last;
 }
 
+static void found_new_client(struct network *n, struct client *c)
+{
+    char *clients_key;
+    char *redis_cmd;
+    int len;
+    redisReply *reply;
+
+	time_printf(V_VERBOSE, "Found client for network [%s] %s\n",
+		    n->n_ssid, mac2str(c->c_mac));
+
+    len = snprintf(NULL, 0, "clients_%s", mac2str(n->n_bssid));
+    clients_key = (char *) malloc(len + 1);
+    sprintf(clients_key, "clients_%s", mac2str(n->n_bssid));
+    len = snprintf(NULL, 0, "SADD %s %s", clients_key, mac2str(c->c_mac));
+    redis_cmd = (char *) malloc(len +  1);
+    sprintf(redis_cmd, "SADD %s %s", clients_key, mac2str(c->c_mac));
+    reply = redisCommand(redis_context, redis_cmd);
+    freeReplyObject(reply);
+    free(clients_key);
+    free(redis_cmd);
+
+	if (n->n_mac_filter && !n->n_client_mac)
+		attack_continue(n);
+
+}
+
+static void attach_client_to_network(struct network *n, unsigned char *cmac) {
+    struct client *c;
+
+    c = xmalloc(sizeof(*c));
+
+    memset(c, 0, sizeof(*c));
+
+    memcpy(c->c_mac, cmac, sizeof(c->c_mac));
+    c->c_next = n->n_clients.c_next;
+    n->n_clients.c_next = c;
+
+    if (n->n_have_beacon &&
+        (n->n_crypto == CRYPTO_WPA || n->n_crypto == CRYPTO_WEP))
+        found_new_client(n, c);
+
+}
+
+static void add_clients_from_redis(struct network *n) {
+    /*
+     * Searchs for clients from redis and adds them to the clients list of the network in memory
+     */
+    int len, i;
+    char *clients_key;
+    char *redis_cmd;
+    redisReply *reply;
+
+    len = snprintf(NULL, 0, "clients_%s", mac2str(n->n_bssid));
+    clients_key = (char *) malloc(len + 1);
+    sprintf(clients_key, "clients_%s", mac2str(n->n_bssid));
+    len = snprintf(NULL, 0, "SMEMBERS %s", clients_key);
+    redis_cmd = (char *) malloc(len +  1);
+    sprintf(redis_cmd, "SMEMBERS %s", clients_key);
+    reply = redisCommand(redis_context, redis_cmd);
+    for (i=0; i<reply->elements; i++) {
+        attach_client_to_network(n, reply->element[i]->str);
+    }
+
+    freeReplyObject(reply);
+    free(clients_key);
+    free(redis_cmd);
+}
+
 static struct network *network_add(struct ieee80211_frame *wh)
 {
     /*
@@ -632,7 +700,8 @@ static struct network *network_add(struct ieee80211_frame *wh)
 	n = network_new();
 
 	memcpy(n->n_bssid, bssid, sizeof(n->n_bssid));
-
+    add_clients_from_redis(n);
+    // add it to the list.
 	do_network_add(n);
 
 	return n;
@@ -1022,15 +1091,6 @@ int is_filtered_essid(char *essid)
 }
 #endif
 
-static void to_upper(char *input) {
-    // convert to upper all the bssid
-    char *s = input;
-    while (*s) {
-        *s = toupper((unsigned char) *s);
-        s++;
-    }
-}
-
 static int check_white_list(struct network *n) {
     int i, len;
     char *current_bssid;
@@ -1038,7 +1098,7 @@ static int check_white_list(struct network *n) {
     char *redis_cmd;
     redisReply *reply;
 
-    format = "SISMEMBER bssid_white_list \"%s\"";
+    format = "SISMEMBER bssid_white_list %s";
     len = snprintf(NULL, 0, format, mac2str(n->n_bssid));
     redis_cmd = (char *)malloc(len + 1);
     sprintf(redis_cmd, format, mac2str(n->n_bssid));
@@ -1048,10 +1108,10 @@ static int check_white_list(struct network *n) {
     free(redis_cmd);
     if ( reply->integer == 1) {
         freeReplyObject(reply);
-        printf("----\n");
-        printf(mac2str(n->n_bssid));
-        printf("\n----");
-        printf("ALREADY FOUND!!! \n");
+        //printf("----\n");
+        //printf(mac2str(n->n_bssid));
+        //printf("\n----");
+        //printf("ALREADY FOUND!!! \n");
         return 1;
     }
     freeReplyObject(reply);
@@ -2172,18 +2232,9 @@ static struct client *client_update(struct network *n,
 	}
 
 	c = client_get(n, wh);
+    // client_get returns NULL if it was not found.
 	if (!c) {
-		c = xmalloc(sizeof(*c));
-
-		memset(c, 0, sizeof(*c));
-
-		memcpy(c->c_mac, cmac, sizeof(c->c_mac));
-		c->c_next = n->n_clients.c_next;
-		n->n_clients.c_next = c;
-
-		if (n->n_have_beacon &&
-		    (n->n_crypto == CRYPTO_WPA || n->n_crypto == CRYPTO_WEP))
-			found_new_client(n, c);
+        attach_client_to_network(n, cmac);
 	}
 
 	return c;
