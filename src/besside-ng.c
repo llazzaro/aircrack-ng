@@ -484,6 +484,12 @@ static void timer_next(struct timeval *tv)
 	tv->tv_usec = diff - (tv->tv_sec * 1000 * 1000);
 }
 
+/*
+ * timer_in add a timer to the _stimers list.
+ * @us microseconds
+ * @timer_cb timer call back
+ * @arg callback arg
+ */
 static void timer_in(int us, timer_cb cb, void *arg)
 {
 	struct timer *t = xmalloc(sizeof(*t));
@@ -3048,12 +3054,14 @@ static void pwn(void)
 	struct timeval tv;
 	fd_set fds;
 	int wifd, max, rc;
+    // redis connection args
     const char *hostname = "127.0.0.1";
     int port = 6379;
     struct timeval timeout = { 1, 500000 };
 
     redis_context = redisConnectWithTimeout(hostname, port, timeout);
 
+    //check for wifi device
 	if (!(s->s_wi = wi_open(_conf.cf_ifname)))
 		err(1, "wi_open()");
 
@@ -3085,6 +3093,8 @@ static void pwn(void)
 	time_printf(V_NORMAL, "Logging to %s\n", _conf.cf_log);
 
 	scan_start();
+
+    //main loop
 	while (s->s_state != STATE_DONE) {
 		timer_next(&tv);
 
@@ -3104,11 +3114,11 @@ static void pwn(void)
 		print_status(FD_ISSET(wifd, &fds));
 
 		if (FD_ISSET(wifd, &fds))
-			wifi_read();
+			wifi_read(); //read packets from the interface
 
-		timer_check();
+		timer_check(); // calls timer callback from the timers list
         //clean_old();
-		make_progress();
+		make_progress();  //
 	}
 
 	time_printf(V_NORMAL, "All neighbors owned\n");
@@ -3169,8 +3179,6 @@ static void autodetect_channels()
 
 static void init_conf(void)
 {
-	int i;
-
 	_conf.cf_channels.c_next = &_conf.cf_channels;
     _conf.cf_5ghz       = false;
 	_conf.cf_autochan = 1;
