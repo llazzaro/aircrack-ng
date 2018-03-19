@@ -3177,6 +3177,58 @@ static void autodetect_channels()
 	autodetect_freq(5825, 5825, 1);  // 165
 }
 
+static void init_channel_hop () {
+    if (!_conf.cf_5ghz) {
+		channel_add(1);
+		channel_add(6);
+		channel_add(11);
+		channel_add(2);
+		channel_add(7);
+		channel_add(10);
+		channel_add(3);
+		channel_add(9);
+		channel_add(12);
+		channel_add(14);
+		channel_add(4);
+		channel_add(13);
+		channel_add(8);
+        channel_add(5);
+        _conf.cf_hopfreq    = 250;
+        _conf.cf_deauthfreq = 2500;
+
+    } else {
+        channel_add(36);
+        channel_add(40);
+        channel_add(44);
+        channel_add(48);
+        channel_add(52);
+        channel_add(56);
+        channel_add(60);
+        channel_add(64);
+        channel_add(100);
+        channel_add(104);
+        channel_add(108);
+        channel_add(112);
+        channel_add(116);
+        channel_add(120);
+        channel_add(124);
+        channel_add(128);
+        channel_add(132);
+        channel_add(136);
+        channel_add(140);
+        channel_add(144);
+        channel_add(149);
+        channel_add(153);
+        channel_add(157);
+        channel_add(161);
+        channel_add(165);
+
+        _conf.cf_hopfreq    = 587;
+        _conf.cf_deauthfreq = 5875;
+    }
+
+}
+
 static void init_conf(void)
 {
 	_conf.cf_channels.c_next = &_conf.cf_channels;
@@ -3389,6 +3441,8 @@ int main(int argc, char *argv[])
                 break;
             }
 	}
+
+	init_channel_hop();
 	if (optind <= argc)
 		_conf.cf_ifname = argv[optind];
 
