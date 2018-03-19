@@ -157,6 +157,7 @@ struct conf {
 	int		cf_do_wep;
 	int		cf_do_wpa;
     bool    cf_5ghz;
+	int		cf_autochan;
 #ifdef HAVE_PCRE
     pcre *cf_essid_regex;
 #endif
@@ -249,6 +250,9 @@ struct state {
 	int		s_wpafd;
 	int		s_wepfd;
 } _state;
+
+static void autodetect_channels();
+
 
 redisContext *redis_context;
 
@@ -1622,7 +1626,11 @@ static void attack(struct network *n)
 	channel_set(n->n_chan);
 
 	time_printf(V_VERBOSE,
-		    "Pwning [%s] %s\n", n->n_ssid, mac2str(n->n_bssid));
+        "Pwning [%s] %s on chanel %d\n",
+        n->n_ssid,
+        mac2str(n->n_bssid),
+        n->n_chan
+    );
     //attack_count
     reply = redisCommand(redis_context, redis_cmd);
     freeReplyObject(reply);
@@ -1914,7 +1922,9 @@ static void wifi_beacon(struct network *n, struct ieee80211_frame *wh,
                 if (parse_rsn(n, p, l, 1) == -1)
                     goto __bad;
                 break;
-
+            case IEEE80211_ELEMID_HTINFO:
+                n->n_chan = *p;
+                break;
             default:
     //			printf("id %d len %d\n", id, l);
                 break;
@@ -3056,9 +3066,14 @@ static void pwn(void)
 	wifd = wi_fd(s->s_wi);
 	max  = wifd;
 
-	time_printf(V_VERBOSE, "mac %s\n", mac2str(_state.s_mac));
+	time_printf(V_VERBOSE, "Using WiFi device with mac %s\n", mac2str(_state.s_mac));
 	time_printf(V_NORMAL, "Let's ride\n");
 
+    // detect channels
+    if (_conf.cf_autochan)
+        autodetect_channels();
+
+    //change to the current channel
 	if (wi_set_channel(s->s_wi, _state.s_chan) == -1)
 		err(1, "wi_set_channel()");
 
@@ -3117,56 +3132,39 @@ static void channel_add(int num)
 	c->c_next = _conf.cf_channels.c_next;
 }
 
-static void init_channel_hop () {
-    if (!_conf.cf_5ghz) {
-		channel_add(1);
-		channel_add(6);
-		channel_add(11);
-		channel_add(2);
-		channel_add(7);
-		channel_add(10);
-		channel_add(3);
-		channel_add(9);
-		channel_add(12);
-		channel_add(14);
-		channel_add(4);
-		channel_add(13);
-		channel_add(8);
-        channel_add(5);
-        _conf.cf_hopfreq    = 250;
-        _conf.cf_deauthfreq = 2500;
+static void autodetect_freq(int start, int end, int incr)
+{
+	int freq;
+	int chan;
 
-    } else {
-        channel_add(36);
-        channel_add(40);
-        channel_add(44);
-        channel_add(48);
-        channel_add(52);
-        channel_add(56);
-        channel_add(60);
-        channel_add(64);
-        channel_add(100);
-        channel_add(104);
-        channel_add(108);
-        channel_add(112);
-        channel_add(116);
-        channel_add(120);
-        channel_add(124);
-        channel_add(128);
-        channel_add(132);
-        channel_add(136);
-        channel_add(140);
-        channel_add(144);
-        channel_add(149);
-        channel_add(153);
-        channel_add(157);
-        channel_add(161);
-        channel_add(165);
+	for (freq = start; freq <= end; freq += incr)
+	{
+		if (wi_set_freq(_state.s_wi, freq) == 0)
+		{
+			chan = wi_get_channel(_state.s_wi);
+			channel_add(chan);
+			time_printf(V_VERBOSE, "Found channel %d on frequency %d\n", chan, freq);
+		}
+		else
+		{
+			time_printf(V_VERBOSE, "No channel found on frequency %d\n", freq);
+		}
+	}
+}
 
-        _conf.cf_hopfreq    = 587;
-        _conf.cf_deauthfreq = 5875;
-    }
+static void autodetect_channels()
+{
+	time_printf(V_NORMAL, "Autodetecting supported channels...\n");
 
+	// autodetect 2ghz channels
+	autodetect_freq(2412, 2472, 5);	// 1-13
+	autodetect_freq(2484, 2484, 1); // 14
+
+	// autodetect 5ghz channels
+	autodetect_freq(5180, 5320, 10); // 36-64
+	autodetect_freq(5500, 5720, 10); // 100-144
+	autodetect_freq(5745, 5805, 10); // 149-161
+	autodetect_freq(5825, 5825, 1);  // 165
 }
 
 static void init_conf(void)
@@ -3175,6 +3173,7 @@ static void init_conf(void)
 
 	_conf.cf_channels.c_next = &_conf.cf_channels;
     _conf.cf_5ghz       = false;
+	_conf.cf_autochan = 1;
 
 	_state.s_hopchan = _conf.cf_channels.c_next;
 
@@ -3346,6 +3345,7 @@ int main(int argc, char *argv[])
                 _conf.cf_channels.c_next = &_conf.cf_channels;
                 channel_add(atoi(optarg));
                 _state.s_hopchan = _conf.cf_channels.c_next;
+                _conf.cf_autochan = 0;
                 break;
 
             case 'v':
@@ -3381,7 +3381,6 @@ int main(int argc, char *argv[])
                 break;
             }
 	}
-    init_channel_hop();
 	if (optind <= argc)
 		_conf.cf_ifname = argv[optind];
 
