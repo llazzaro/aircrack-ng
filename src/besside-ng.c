@@ -462,6 +462,10 @@ static inline void timer_print(void)
 }
 #endif
 
+/*
+ * it seems at increments timeval using now to go forward with timers in s_timers.
+ *
+ */
 static void timer_next(struct timeval *tv)
 {
 	struct timer *t = _state.s_timers.t_next;
@@ -508,34 +512,43 @@ static void timer_in(int us, timer_cb cb, void *arg)
 	t->t_tv.tv_sec  += s;
 	t->t_tv.tv_usec -= s * 1000 * 1000;
 
+    // insert sort using time_diff
 	while (p->t_next) {
-		if (time_diff(&t->t_tv, &p->t_next->t_tv) > 0)
+		if (time_diff(&t->t_tv, &p->t_next->t_tv) > 0) {
 			break;
+        }
 
 		p = p->t_next;
 	}
 
 	t->t_next = p->t_next;
 	p->t_next = t;
-//   free(t);
-//	timer_print();
 }
 
+/*
+ * Iterates on the timers list and call the callback of the timer
+ * if the time diff is small it will skip and delete the timer since
+ * it already expired
+ */
 static void timer_check(void)
 {
 //	timer_print();
 
+	struct timer *t = _state.s_timers.t_next;
 	while (_state.s_timers.t_next) {
-		struct timer *t = _state.s_timers.t_next;
+		struct timer *previous = t;
+        t = _state.s_timers.t_next;
 
-		if (time_diff(&t->t_tv, &_state.s_now) < 0)
+		if (time_diff(&t->t_tv, &_state.s_now) < 0) {
+		    //free(t);
 			break;
+        }
 
 		_state.s_timers.t_next = t->t_next;
 
 		t->t_cb(t->t_arg);
 
-		free(t);
+		//free(t);
 	}
 }
 
@@ -640,8 +653,12 @@ static void found_new_client(struct network *n, struct client *c)
     int len;
     redisReply *reply;
 
-	time_printf(V_VERBOSE, "Found client for network [%s] %s\n",
-		    n->n_ssid, mac2str(c->c_mac));
+	time_printf(
+        V_VERBOSE,
+        "Found client for network [%s] %s\n",
+        n->n_ssid,
+        mac2str(n->n_bssid)
+    );
 
     len = snprintf(NULL, 0, "clients_%s", mac2str(n->n_bssid));
     clients_key = (char *) malloc(len + 1);
@@ -676,6 +693,16 @@ static void attach_client_to_network(struct network *n, unsigned char *cmac) {
 
 }
 
+static bool find_client_on_network(struct network *n, char *current_mac) {
+	struct client *c = n->n_clients.c_next;
+	while (c) {
+        if (memcmp(c->c_mac, current_mac, 6) == 0)
+            return true;
+		c = c->c_next;
+	}
+    return false;
+}
+
 static void add_clients_from_redis(struct network *n) {
     /*
      * Searchs for clients from redis and adds them to the clients list of the network in memory
@@ -693,7 +720,9 @@ static void add_clients_from_redis(struct network *n) {
     sprintf(redis_cmd, "SMEMBERS %s", clients_key);
     reply = redisCommand(redis_context, redis_cmd);
     for (i=0; i<reply->elements; i++) {
-        attach_client_to_network(n, reply->element[i]->str);
+        if (!find_client_on_network(n, reply->element[i]->str)) {
+            attach_client_to_network(n, reply->element[i]->str);
+        }
     }
 
     freeReplyObject(reply);
@@ -948,6 +977,7 @@ static void hop(void *arg)
 {
 	int old = _state.s_chan;
 
+    // Avoid changing the channel on different state
 	if (_state.s_state != STATE_SCAN)
 		return;
 
@@ -2331,7 +2361,7 @@ static void process_eapol(struct network *n, struct client *c, unsigned char *p,
         reply = redisCommand(redis_context, "HINCRBY session_stats 4way 1");
         freeReplyObject(reply);
         format = "SADD bssid_white_list %s";
-        printf("Added to white list");
+        printf("Added to white list\n");
         cmd_len = snprintf(NULL, 0, format, mac2str(c->c_mac));
         redis_cmd = (char *) malloc(len + 1);
         sprintf(redis_cmd, format, mac2str(c->c_mac));
@@ -2679,21 +2709,21 @@ static void wifi_read()
 	n = network_update(wh);
 
 	switch (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) {
-	case IEEE80211_FC0_TYPE_MGT:
-		wifi_mgt(n, wh, rd);
-		break;
+        case IEEE80211_FC0_TYPE_MGT:
+            wifi_mgt(n, wh, rd);
+            break;
 
-	case IEEE80211_FC0_TYPE_CTL:
-		wifi_ctl(wh, rd);
-		break;
+        case IEEE80211_FC0_TYPE_CTL:
+            wifi_ctl(wh, rd);
+            break;
 
-	case IEEE80211_FC0_TYPE_DATA:
-		wifi_data(n, wh, rd);
-		break;
+        case IEEE80211_FC0_TYPE_DATA:
+            wifi_data(n, wh, rd);
+            break;
 
-	default:
-		printf("Unknown type %d\n", wh->i_fc[0]);
-	}
+        default:
+            printf("Unknown type %d\n", wh->i_fc[0]);
+        }
 }
 
 static const char *astate2str(int astate)
@@ -2745,52 +2775,52 @@ static void print_status(int advance)
 	time_printf(V_NORMAL, "%c", *statusp);
 
 	switch (_state.s_state) {
-	case STATE_SCAN:
-		printf(" Scanning chan %.2d", _state.s_chan);
-		break;
+        case STATE_SCAN:
+            printf(" Scanning chan %.2d", _state.s_chan);
+            break;
 
-	case STATE_ATTACK:
-		printf(" Attacking %s [%s] %s - %s",
-               n->n_ssid,
-		       mac2str(n->n_bssid),
-		       n->n_crypto == CRYPTO_WPA ? "wpa" : "wep",
-		       astate2str(n->n_astate));
+        case STATE_ATTACK:
+            printf(" Attacking %s [%s] %s - %s",
+                   n->n_ssid,
+                   mac2str(n->n_bssid),
+                   n->n_crypto == CRYPTO_WPA ? "wpa" : "wep",
+                   astate2str(n->n_astate));
 
-		if (need_connect(n) && n->n_wstate != WSTATE_ASSOC)
-			printf(" [conn: %s]", wstate2str(n->n_wstate));
+            if (need_connect(n) && n->n_wstate != WSTATE_ASSOC)
+                printf(" [conn: %s]", wstate2str(n->n_wstate));
 
-		switch (n->n_astate) {
-		case ASTATE_WEP_FLOOD:
-			if (n->n_cracker_wep[0].cr_pid
-                            || n->n_cracker_wep[1].cr_pid)
-				printf(" cracking");
+        switch (n->n_astate) {
+            case ASTATE_WEP_FLOOD:
+                if (n->n_cracker_wep[0].cr_pid
+                                || n->n_cracker_wep[1].cr_pid)
+                    printf(" cracking");
 
-			speed_calculate(&n->n_flood_in);
-			speed_calculate(&n->n_flood_out);
+                speed_calculate(&n->n_flood_in);
+                speed_calculate(&n->n_flood_out);
 
-			printf(" - %d IVs rate %u [%u PPS out] len %d",
-			       n->n_data_count,
-			       n->n_flood_in.s_speed,
-			       n->n_flood_out.s_speed,
-			       (int) (n->n_replay_len
-			       	       - sizeof(struct ieee80211_frame) - 4 - 4)
-			       );
-			break;
+                printf(" - %d IVs rate %u [%u PPS out] len %d",
+                       n->n_data_count,
+                       n->n_flood_in.s_speed,
+                       n->n_flood_out.s_speed,
+                       (int) (n->n_replay_len
+                               - sizeof(struct ieee80211_frame) - 4 - 4)
+                       );
+                break;
 
-		case ASTATE_DEAUTH:
-			c = n->n_clients.c_next;
-			while (c) {
-				ccount++;
+            case ASTATE_DEAUTH:
+                c = n->n_clients.c_next;
+                while (c) {
+                    ccount++;
 
-				c = c->c_next;
-			}
+                    c = c->c_next;
+                }
 
-			if (ccount)
-				printf(" (know %d clients)", ccount);
-			break;
-		}
+                if (ccount)
+                    printf(" (know %d clients)", ccount);
+                break;
+            }
 
-		break;
+            break;
 	}
 
 	printf("\r");
@@ -3065,6 +3095,10 @@ static void pwn(void)
 	if (!(s->s_wi = wi_open(_conf.cf_ifname)))
 		err(1, "wi_open()");
 
+    // detect channels
+    if (_conf.cf_autochan)
+        autodetect_channels();
+
 	if (wi_get_mac(s->s_wi, _state.s_mac) == -1)
 		err(1, "wi_get_mac()");
 
@@ -3076,10 +3110,6 @@ static void pwn(void)
 
 	time_printf(V_VERBOSE, "Using WiFi device with mac %s\n", mac2str(_state.s_mac));
 	time_printf(V_NORMAL, "Let's ride\n");
-
-    // detect channels
-    if (_conf.cf_autochan)
-        autodetect_channels();
 
     //change to the current channel
 	if (wi_set_channel(s->s_wi, _state.s_chan) == -1)
